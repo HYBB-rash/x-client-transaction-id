@@ -142,6 +142,35 @@ constructor(homePageDocument: Document)
 - `async generateTransactionId(method: string, path: string, ...): Promise<string>`:
   指定されたHTTPメソッドとAPIパスに対するトランザクションIDを生成
 
+#### プロパティ
+
+インスタンスの読み取り専用の状態です。`key` と `animationKey` は
+`initialize()` が成功するまで `null` です。
+
+- `key: string | null`: ドキュメントから読み取ったBase64の検証キー
+- `keyBytes: number[] | null`: `key` をデコードしたバイト列
+- `animationKey: string | null`: ドキュメントに対して導出されたアニメーションキー
+- `isInitialized: boolean`: キーが利用可能かどうか
+
+`key` と `animationKey` をキャッシュして以降の呼び出しに渡せば、ドキュメントの
+再取得や再初期化は不要です。
+
+```ts
+const document = await fetchXDocument();
+const { key, animationKey } = await ClientTransaction.create(document);
+// { key, animationKey } をキャッシュに保存
+
+// 以降のリクエストはキャッシュしたキーを再利用
+const transaction = new ClientTransaction(document);
+const transactionId = await transaction.generateTransactionId(
+  "GET",
+  "/1.1/jot/client_event.json",
+  undefined,
+  key,
+  animationKey,
+);
+```
+
 ### `fetchXDocument`
 
 ```ts

@@ -145,6 +145,35 @@ constructor(homePageDocument: Document)
 - `async generateTransactionId(method: string, path: string, ...): Promise<string>`:
   Generate a transaction ID for the specified HTTP method and API path
 
+#### Properties
+
+Read-only state of the instance. `key` and `animationKey` are `null` until
+`initialize()` succeeds.
+
+- `key: string | null`: Base64 verification key read from the document
+- `keyBytes: number[] | null`: Decoded bytes of `key`
+- `animationKey: string | null`: Animation key derived for the document
+- `isInitialized: boolean`: Whether the keys are available
+
+Cache `key` and `animationKey` and pass them back on later calls, so requests
+do not need a fresh document or a fresh initialization:
+
+```ts
+const document = await fetchXDocument();
+const { key, animationKey } = await ClientTransaction.create(document);
+// Store { key, animationKey } in your cache
+
+// Later requests reuse the cached keys
+const transaction = new ClientTransaction(document);
+const transactionId = await transaction.generateTransactionId(
+  "GET",
+  "/1.1/jot/client_event.json",
+  undefined,
+  key,
+  animationKey,
+);
+```
+
 ### `fetchXDocument`
 
 ```ts

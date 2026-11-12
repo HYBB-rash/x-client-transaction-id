@@ -135,6 +135,33 @@ constructor(homePageDocument: Document)
 - `static async create(homePageDocument: Document): Promise<ClientTransaction>`：创建已初始化实例的静态工厂方法
 - `async generateTransactionId(method: string, path: string, ...): Promise<string>`：为指定的HTTP方法和API路径生成交易ID
 
+#### 属性
+
+实例的只读状态。`key` 和 `animationKey` 在 `initialize()` 成功之前为 `null`。
+
+- `key: string | null`：从文档读取的 Base64 校验密钥
+- `keyBytes: number[] | null`：`key` 解码后的字节
+- `animationKey: string | null`：为文档推导出的动画密钥
+- `isInitialized: boolean`：密钥是否可用
+
+缓存 `key` 和 `animationKey` 并在后续调用中回传，就可以不必重新获取文档、也不必重新初始化：
+
+```ts
+const document = await fetchXDocument();
+const { key, animationKey } = await ClientTransaction.create(document);
+// 把 { key, animationKey } 存入缓存
+
+// 后续请求复用缓存的密钥
+const transaction = new ClientTransaction(document);
+const transactionId = await transaction.generateTransactionId(
+  "GET",
+  "/1.1/jot/client_event.json",
+  undefined,
+  key,
+  animationKey,
+);
+```
+
 ### `fetchXDocument`
 
 ```ts

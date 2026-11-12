@@ -45,6 +45,7 @@ export {
   interpolateNum,
   isOdd,
 } from "./math.ts";
+export type { ClientTransactionKeys } from "./transaction.ts";
 export {
   activateGuestToken,
   fetchXDocument,

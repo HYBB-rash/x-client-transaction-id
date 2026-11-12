@@ -1,6 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import {
   ClientTransaction,
+  ClientTransactionInitializationError,
   ClientTransactionNotInitializedError,
   decodeBase64,
   encodeBase64,
@@ -145,4 +146,141 @@ test("initialize surfaces ondemand fetch failures as typed errors", async () => 
     "Unable to fetch the X ondemand chunk",
   );
   expect((error as OnDemandFileFetchError).status).toBe(503);
+});
+
+test("exposes the keys consumers cache and replay", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(LIVE_PAGE_ON_DEMAND_SOURCE),
+  );
+  const transaction = await ClientTransaction.create(await loadLivePage());
+
+  expect(transaction.key).toBe(LIVE_PAGE_KEY);
+  expect(transaction.animationKey).toBe(LIVE_PAGE_ANIMATION_KEY);
+  expect(transaction.keyBytes).toEqual(Array.from(decodeBase64(LIVE_PAGE_KEY)));
+  expect(transaction.isInitialized).toBe(true);
+});
+
+test("reports uninitialized state through the public getters", () => {
+  const transaction = new ClientTransaction(
+    createDocument("<html><head></head><body></body></html>"),
+  );
+
+  expect(transaction.isInitialized).toBe(false);
+  expect(transaction.key).toBeNull();
+  expect(transaction.animationKey).toBeNull();
+  expect(transaction.keyBytes).toBeNull();
+});
+
+test("generates from replayable keys on an instance that was never initialized", async () => {
+  // The pattern a consumer uses after caching the keys: build an object from
+  // the prototype, restore the flag, and pass the keys back in on each call
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(LIVE_PAGE_ON_DEMAND_SOURCE),
+  );
+  spyOn(Math, "random").mockReturnValue(0.5);
+  const initialized = await ClientTransaction.create(await loadLivePage());
+  const expected = await initialized.generateTransactionId(
+    "GET",
+    "/i/api/graphql/abc/UserByScreenName",
+    undefined,
+    undefined,
+    undefined,
+    123456789,
+  );
+
+  const restored = Object.assign(Object.create(ClientTransaction.prototype), {
+    isInitialized: true,
+  }) as ClientTransaction;
+  expect(restored.isInitialized).toBe(true);
+  expect(restored.key).toBeNull();
+  expect(restored.animationKey).toBeNull();
+  expect(
+    await restored.generateTransactionId(
+      "GET",
+      "/i/api/graphql/abc/UserByScreenName",
+      undefined,
+      LIVE_PAGE_KEY,
+      LIVE_PAGE_ANIMATION_KEY,
+      123456789,
+    ),
+  ).toBe(expected);
+});
+
+test("generateTransactionId throws when the replayed keys are incomplete", async () => {
+  const restored = Object.create(
+    ClientTransaction.prototype,
+  ) as ClientTransaction;
+
+  const error = await restored
+    .generateTransactionId("GET", "/x", undefined, LIVE_PAGE_KEY)
+    .catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(ClientTransactionNotInitializedError);
+});
+
+test("getKeys returns a serialisable pair and fromKeys rebuilds the instance", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(LIVE_PAGE_ON_DEMAND_SOURCE),
+  );
+  spyOn(Math, "random").mockReturnValue(0.5);
+  const original = await ClientTransaction.create(await loadLivePage());
+  const keys = original.getKeys();
+  expect(keys).toEqual({
+    key: LIVE_PAGE_KEY,
+    animationKey: LIVE_PAGE_ANIMATION_KEY,
+  });
+
+  // Cross-process caching round trip
+  const restored = ClientTransaction.fromKeys(JSON.parse(JSON.stringify(keys)));
+  expect(restored.getKeys()).toEqual(keys);
+  expect(restored.isInitialized).toBe(true);
+  expect(
+    await restored.generateTransactionId(
+      "GET",
+      "/i/api/graphql/abc/UserByScreenName",
+      undefined,
+      undefined,
+      undefined,
+      123456789,
+    ),
+  ).toBe(
+    await original.generateTransactionId(
+      "GET",
+      "/i/api/graphql/abc/UserByScreenName",
+      undefined,
+      undefined,
+      undefined,
+      123456789,
+    ),
+  );
+});
+
+test("fromKeys rejects incomplete or malformed keys", () => {
+  const cases: unknown[] = [
+    undefined,
+    null,
+    {},
+    { key: LIVE_PAGE_KEY },
+    { animationKey: LIVE_PAGE_ANIMATION_KEY },
+    { key: "", animationKey: LIVE_PAGE_ANIMATION_KEY },
+    { key: LIVE_PAGE_KEY, animationKey: "" },
+    { key: "!!!not base64!!!", animationKey: LIVE_PAGE_ANIMATION_KEY },
+    { key: btoa(""), animationKey: LIVE_PAGE_ANIMATION_KEY },
+  ];
+
+  for (const keys of cases) {
+    expect(() =>
+      ClientTransaction.fromKeys(keys as { key: string; animationKey: string }),
+    ).toThrow(ClientTransactionInitializationError);
+  }
+});
+
+test("getKeys is null before initialization", () => {
+  expect(new ClientTransaction().getKeys()).toBeNull();
+});
+
+test("initialize without a document throws a typed error", async () => {
+  const error = await new ClientTransaction()
+    .initialize()
+    .catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(ClientTransactionInitializationError);
 });
